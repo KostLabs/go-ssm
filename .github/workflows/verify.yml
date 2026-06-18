@@ -31,9 +31,9 @@ jobs:
           go test -v ./...
 
       - name: Run lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
 
       - name: Check for gosec
         uses: securego/gosec@master
         with:
-          args: ./...
+          args: ./

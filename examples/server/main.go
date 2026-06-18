@@ -34,7 +34,7 @@ type Config struct {
 }
 
 func loadConfig(ctx context.Context) (*Config, error) {
-	dbARN  := os.Getenv("SECRET_ARN_DB")
+	dbARN := os.Getenv("SECRET_ARN_DB")
 	apiARN := os.Getenv("SECRET_ARN_API")
 
 	var cfg Config
@@ -44,10 +44,10 @@ func loadConfig(ctx context.Context) (*Config, error) {
 		arn    string
 		key    string
 	}{
-		{&cfg.DBUser,     dbARN,  "db_user"},
-		{&cfg.DBPassword, dbARN,  "db_password"},
-		{&cfg.APIKey,     apiARN, "api_key"},
-		{&cfg.APISecret,  apiARN, "api_secret"},
+		{&cfg.DBUser, dbARN, "db_user"},
+		{&cfg.DBPassword, dbARN, "db_password"},
+		{&cfg.APIKey, apiARN, "api_key"},
+		{&cfg.APISecret, apiARN, "api_secret"},
 	}
 
 	for _, e := range entries {
