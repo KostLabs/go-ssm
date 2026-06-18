@@ -40,56 +40,45 @@ func (n *nilSecretClient) GetSecretValue(_ context.Context, _ *secretsmanager.Ge
 	return &secretsmanager.GetSecretValueOutput{SecretString: nil}, nil
 }
 
-// --- Fetch (uses context.Background internally) ---
+// --- FetchSecret ---
 
-func TestFetch_Success(t *testing.T) {
+func TestFetchSecret_Success(t *testing.T) {
 	c := &mockClient{secrets: map[string]string{
 		testARN: `{"user":"pgadmin","pass":"hunter2"}`,
 	}}
 
-	user, err := gossm.Fetch(testARN, "user", c)
+	user, err := gossm.FetchSecret(context.Background(), testARN, "user", c)
 	require.NoError(t, err)
 	assert.Equal(t, "pgadmin", user)
 
-	pass, err := gossm.Fetch(testARN, "pass", c)
+	pass, err := gossm.FetchSecret(context.Background(), testARN, "pass", c)
 	require.NoError(t, err)
 	assert.Equal(t, "hunter2", pass)
 }
 
-func TestFetch_EmptyARN(t *testing.T) {
-	_, err := gossm.Fetch("", "key", &mockClient{})
+func TestFetchSecret_EmptyARN(t *testing.T) {
+	_, err := gossm.FetchSecret(context.Background(), "", "key", &mockClient{})
 	assert.ErrorIs(t, err, gossm.ErrEmptyARN)
 }
 
-func TestFetch_EmptyKey(t *testing.T) {
-	_, err := gossm.Fetch(testARN, "", &mockClient{})
+func TestFetchSecret_EmptyKey(t *testing.T) {
+	_, err := gossm.FetchSecret(context.Background(), testARN, "", &mockClient{})
 	assert.ErrorIs(t, err, gossm.ErrEmptyKey)
 }
 
-// --- FetchWithContext (caller-supplied context) ---
-
-func TestFetchWithContext_Success(t *testing.T) {
-	c := &mockClient{secrets: map[string]string{testARN: `{"k":"v"}`}}
-	got, err := gossm.FetchWithContext(context.Background(), testARN, "k", c)
-	require.NoError(t, err)
-	assert.Equal(t, "v", got)
-}
-
-func TestFetchWithContext_CancelledContext(t *testing.T) {
+func TestFetchSecret_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	c := &mockClient{err: ctx.Err()}
-	_, err := gossm.FetchWithContext(ctx, testARN, "key", c)
+	_, err := gossm.FetchSecret(ctx, testARN, "key", c)
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// --- Error paths ---
-
-func TestFetch_ClientError(t *testing.T) {
+func TestFetchSecret_ClientError(t *testing.T) {
 	underlying := fmt.Errorf("network timeout")
-	_, err := gossm.Fetch(testARN, "user", &mockClient{err: underlying})
+	_, err := gossm.FetchSecret(context.Background(), testARN, "user", &mockClient{err: underlying})
 
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
@@ -97,35 +86,86 @@ func TestFetch_ClientError(t *testing.T) {
 	assert.ErrorIs(t, err, underlying)
 }
 
-func TestFetch_SecretNotFound(t *testing.T) {
-	_, err := gossm.Fetch(testARN, "user", &mockClient{secrets: map[string]string{}})
+func TestFetchSecret_SecretNotFound(t *testing.T) {
+	_, err := gossm.FetchSecret(context.Background(), testARN, "user", &mockClient{secrets: map[string]string{}})
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
 }
 
-func TestFetch_NilSecretString(t *testing.T) {
-	_, err := gossm.Fetch(testARN, "user", &nilSecretClient{})
+func TestFetchSecret_NilSecretString(t *testing.T) {
+	_, err := gossm.FetchSecret(context.Background(), testARN, "user", &nilSecretClient{})
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
 }
 
-func TestFetch_InvalidJSON(t *testing.T) {
+func TestFetchSecret_InvalidJSON(t *testing.T) {
 	c := &mockClient{secrets: map[string]string{testARN: `not-json`}}
-	_, err := gossm.Fetch(testARN, "user", c)
+	_, err := gossm.FetchSecret(context.Background(), testARN, "user", c)
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
 }
 
-func TestFetch_KeyNotFound(t *testing.T) {
+func TestFetchSecret_KeyNotFound(t *testing.T) {
 	c := &mockClient{secrets: map[string]string{testARN: `{"user":"admin"}`}}
-	_, err := gossm.Fetch(testARN, "missing", c)
+	_, err := gossm.FetchSecret(context.Background(), testARN, "missing", c)
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
 }
 
-func TestFetch_KeyNotString(t *testing.T) {
+func TestFetchSecret_KeyNotString(t *testing.T) {
 	c := &mockClient{secrets: map[string]string{testARN: `{"port":5432}`}}
-	_, err := gossm.Fetch(testARN, "port", c)
+	_, err := gossm.FetchSecret(context.Background(), testARN, "port", c)
 	var se *gossm.SecretError
 	require.ErrorAs(t, err, &se)
+}
+
+// --- FetchSecretMap ---
+
+func TestFetchSecretMap_Success(t *testing.T) {
+	c := &mockClient{secrets: map[string]string{
+		testARN: `{"db_user":"admin","db_password":"s3cr3t","api_key":"abc123"}`,
+	}}
+
+	got, err := gossm.FetchSecretMap(context.Background(), testARN, c)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"db_user":     "admin",
+		"db_password": "s3cr3t",
+		"api_key":     "abc123",
+	}, got)
+}
+
+func TestFetchSecretMap_EmptyARN(t *testing.T) {
+	_, err := gossm.FetchSecretMap(context.Background(), "", &mockClient{})
+	assert.ErrorIs(t, err, gossm.ErrEmptyARN)
+}
+
+func TestFetchSecretMap_NilSecretString(t *testing.T) {
+	_, err := gossm.FetchSecretMap(context.Background(), testARN, &nilSecretClient{})
+	var se *gossm.SecretError
+	require.ErrorAs(t, err, &se)
+}
+
+func TestFetchSecretMap_InvalidJSON(t *testing.T) {
+	c := &mockClient{secrets: map[string]string{testARN: `not-json`}}
+	_, err := gossm.FetchSecretMap(context.Background(), testARN, c)
+	var se *gossm.SecretError
+	require.ErrorAs(t, err, &se)
+}
+
+func TestFetchSecretMap_NonStringValue(t *testing.T) {
+	c := &mockClient{secrets: map[string]string{testARN: `{"port":5432}`}}
+	_, err := gossm.FetchSecretMap(context.Background(), testARN, c)
+	var se *gossm.SecretError
+	require.ErrorAs(t, err, &se)
+}
+
+func TestFetchSecretMap_CancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := &mockClient{err: ctx.Err()}
+	_, err := gossm.FetchSecretMap(ctx, testARN, c)
+	var se *gossm.SecretError
+	require.ErrorAs(t, err, &se)
+	assert.ErrorIs(t, err, context.Canceled)
 }

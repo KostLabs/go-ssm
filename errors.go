@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-// ErrEmptyARN is returned when an empty ARN is passed to Fetch or FetchWithContext.
+// ErrEmptyARN is returned when an empty ARN is passed to FetchSecret or FetchSecretMap.
 var ErrEmptyARN = errors.New("gossm: secret ARN must not be empty")
 
-// ErrEmptyKey is returned when an empty key is passed to Fetch or FetchWithContext.
+// ErrEmptyKey is returned when an empty key is passed to FetchSecret.
 var ErrEmptyKey = errors.New("gossm: secret key must not be empty")
 
 // SecretError wraps an underlying AWS error with the ARN of the secret that caused it.

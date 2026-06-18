@@ -10,23 +10,43 @@ required in consumer code.
 
 	arn := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/db"
 
-	password, err := gossm.Fetch(arn, "db_password")
+	password, err := gossm.FetchSecret(ctx, arn, "db_password")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 # Multiple keys into variables
 
-Call [Fetch] once per key. Each call reads the same JSON secret:
+Call [FetchSecret] once per key. Each call reads the same JSON secret:
 
-	dbUser, err := gossm.Fetch(arn, "db_user")
-	dbPass, err := gossm.Fetch(arn, "db_password")
-	apiKey, err := gossm.Fetch(arn, "api_key")
+	dbUser, err := gossm.FetchSecret(ctx, arn, "db_user")
+	dbPass, err := gossm.FetchSecret(ctx, arn, "db_password")
+	apiKey, err := gossm.FetchSecret(ctx, arn, "api_key")
+
+# All keys at once
+
+Use [FetchSecretMap] to retrieve the entire JSON secret as map[string]string in
+a single AWS call:
+
+	secrets, err := gossm.FetchSecretMap(ctx, arn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// secrets["db_user"], secrets["db_password"], …
+
+This integrates cleanly with Viper:
+
+	secrets, err := gossm.FetchSecretMap(ctx, arn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for k, v := range secrets {
+		viper.SetDefault(k, v)
+	}
 
 # Multiple secrets into a typed struct
 
-Declare a Config struct and populate it once at startup. The rest of the
-program reads from the struct without hitting AWS again:
+Declare a Config struct and populate it once at startup:
 
 	type Config struct {
 		DBUser     string
@@ -39,45 +59,41 @@ program reads from the struct without hitting AWS again:
 		dbARN  := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/db"
 		apiARN := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/api"
 
-		var cfg Config
-		entries := []struct {
-			target *string
-			arn    string
-			key    string
-		}{
-			{&cfg.DBUser,     dbARN,  "db_user"},
-			{&cfg.DBPassword, dbARN,  "db_password"},
-			{&cfg.APIKey,     apiARN, "api_key"},
-			{&cfg.APISecret,  apiARN, "api_secret"},
+		db, err := gossm.FetchSecretMap(ctx, dbARN)
+		if err != nil {
+			return nil, err
 		}
-		for _, e := range entries {
-			val, err := gossm.FetchWithContext(ctx, e.arn, e.key)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", e.key, err)
-			}
-			*e.target = val
+		api, err := gossm.FetchSecretMap(ctx, apiARN)
+		if err != nil {
+			return nil, err
 		}
-		return &cfg, nil
+
+		return &Config{
+			DBUser:     db["db_user"],
+			DBPassword: db["db_password"],
+			APIKey:     api["api_key"],
+			APISecret:  api["api_secret"],
+		}, nil
 	}
 
 # Using with a web framework context
 
-[FetchWithContext] accepts any [context.Context], integrating transparently
-with Gin, Echo, Chi, or stdlib handlers:
+[FetchSecret] accepts any [context.Context], integrating transparently with
+Gin, Echo, Chi, or stdlib handlers:
 
 	// Gin
 	func handler(c *gin.Context) {
-		val, err := gossm.FetchWithContext(c.Request.Context(), arn, "key")
+		val, err := gossm.FetchSecret(c.Request.Context(), arn, "key")
 	}
 
 	// Echo
 	func handler(c echo.Context) error {
-		val, err := gossm.FetchWithContext(c.Request().Context(), arn, "key")
+		val, err := gossm.FetchSecret(c.Request().Context(), arn, "key")
 	}
 
 	// Chi / stdlib
 	func handler(w http.ResponseWriter, r *http.Request) {
-		val, err := gossm.FetchWithContext(r.Context(), arn, "key")
+		val, err := gossm.FetchSecret(r.Context(), arn, "key")
 	}
 
 # Custom client
@@ -89,8 +105,8 @@ provider:
 	cfg, _ := config.LoadDefaultConfig(ctx, config.WithRegion("us-west-2"))
 	client := gossm.NewClientFromConfig(cfg)
 
-	val, err := gossm.Fetch(arn, "key", client)
-	val, err := gossm.FetchWithContext(ctx, arn, "key", client)
+	val, err := gossm.FetchSecret(ctx, arn, "key", client)
+	secrets, err := gossm.FetchSecretMap(ctx, arn, client)
 
 # Error handling
 
@@ -118,7 +134,7 @@ account or credentials needed:
 		return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(val)}, nil
 	}
 
-	val, err := gossm.Fetch(arn, "api_key", &mockClient{
+	val, err := gossm.FetchSecret(ctx, arn, "api_key", &mockClient{
 		secrets: map[string]string{arn: `{"api_key":"test-key"}`},
 	})
 */

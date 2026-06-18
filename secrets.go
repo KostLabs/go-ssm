@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 )
 
-// Fetch retrieves the value of key from a JSON secret stored in AWS Secrets Manager.
+// FetchSecret retrieves the value of key from a JSON secret stored in AWS Secrets Manager.
 // arn is the full secret ARN; key is the field name within the JSON object.
 //
 // The package-level AWS client is used by default (initialised once from the
@@ -17,26 +17,9 @@ import (
 // to use a different region, endpoint, or credentials, or to inject a mock in
 // tests:
 //
-//	// default client — reads credentials from env / IAM role
-//	val, err := gossm.Fetch(arn, "db_password")
-//
-//	// custom or mock client
-//	val, err := gossm.Fetch(arn, "db_password", myClient)
-func Fetch(arn, key string, c ...Client) (string, error) {
-	return FetchWithContext(context.Background(), arn, key, c...)
-}
-
-// FetchWithContext is like [Fetch] but propagates the caller-supplied context.
-// ctx is compatible with any [context.Context] implementation — stdlib,
-// Gin (c.Request.Context()), Echo (c.Request().Context()), Chi (r.Context()),
-// or any other framework:
-//
-//	// stdlib / Chi handler
-//	val, err := gossm.FetchWithContext(r.Context(), arn, "db_password")
-//
-//	// with a custom or mock client
-//	val, err := gossm.FetchWithContext(ctx, arn, "db_password", myClient)
-func FetchWithContext(ctx context.Context, arn, key string, c ...Client) (string, error) {
+//	val, err := gossm.FetchSecret(ctx, arn, "db_password")
+//	val, err := gossm.FetchSecret(ctx, arn, "db_password", myClient)
+func FetchSecret(ctx context.Context, arn, key string, c ...Client) (string, error) {
 	if arn == "" {
 		return "", ErrEmptyARN
 	}
@@ -66,6 +49,38 @@ func FetchWithContext(ctx context.Context, arn, key string, c ...Client) (string
 	return val, nil
 }
 
+// FetchSecretMap fetches all string keys from a JSON secret and returns them as
+// a map. A single AWS call retrieves the whole secret — no per-key round trips.
+//
+//	secrets, err := gossm.FetchSecretMap(ctx, arn)
+//	// secrets["db_user"], secrets["db_password"], …
+func FetchSecretMap(ctx context.Context, arn string, c ...Client) (map[string]string, error) {
+	if arn == "" {
+		return nil, ErrEmptyARN
+	}
+
+	client, err := secretsClient(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("gossm: init client: %w", err)
+	}
+
+	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: aws.String(arn),
+	})
+	if err != nil {
+		return nil, &SecretError{ARN: arn, Err: err}
+	}
+	if out.SecretString == nil {
+		return nil, &SecretError{ARN: arn, Err: fmt.Errorf("secret has no string value (binary secrets are not supported)")}
+	}
+
+	result, err := extractAllKeys(*out.SecretString)
+	if err != nil {
+		return nil, &SecretError{ARN: arn, Err: err}
+	}
+	return result, nil
+}
+
 func extractKey(raw, key string) (string, error) {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
@@ -80,4 +95,20 @@ func extractKey(raw, key string) (string, error) {
 		return "", fmt.Errorf("key %q value is not a string", key)
 	}
 	return s, nil
+}
+
+func extractAllKeys(raw string) (map[string]string, error) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil, fmt.Errorf("secret value is not valid JSON: %w", err)
+	}
+	result := make(map[string]string, len(m))
+	for k, v := range m {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("key %q value is not a string", k)
+		}
+		result[k] = s
+	}
+	return result, nil
 }

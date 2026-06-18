@@ -27,17 +27,17 @@ func main() {
 		log.Fatal("SECRET_ARN env var is required")
 	}
 
-	dbUser, err := gossm.FetchWithContext(ctx, arn, "db_user")
+	dbUser, err := gossm.FetchSecret(ctx, arn, "db_user")
 	if err != nil {
 		log.Fatalf("fetch db_user: %v", err)
 	}
 
-	dbPassword, err := gossm.FetchWithContext(ctx, arn, "db_password")
+	dbPassword, err := gossm.FetchSecret(ctx, arn, "db_password")
 	if err != nil {
 		log.Fatalf("fetch db_password: %v", err)
 	}
 
-	apiKey, err := gossm.FetchWithContext(ctx, arn, "api_key")
+	apiKey, err := gossm.FetchSecret(ctx, arn, "api_key")
 	if err != nil {
 		log.Fatalf("fetch api_key: %v", err)
 	}
