@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -25,7 +26,7 @@ func main() {
 		log.Fatal("SECRET_ARN env var is required")
 	}
 
-	apiKey, err := gossm.Fetch(arn, "api_key")
+	apiKey, err := gossm.FetchSecret(context.Background(), arn, "api_key")
 	if err != nil {
 		log.Fatalf("fetch api_key: %v", err)
 	}

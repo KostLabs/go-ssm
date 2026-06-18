@@ -10,7 +10,7 @@ import (
 )
 
 // Client is the interface satisfied by the AWS Secrets Manager SDK client.
-// Pass a custom implementation to [Fetch] or [FetchWithContext] to override
+// Pass a custom implementation to [FetchSecret] or [FetchSecretMap] to override
 // the default — useful for testing without a real AWS account.
 type Client interface {
 	GetSecretValue(ctx context.Context, input *secretsmanager.GetSecretValueInput, opts ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
@@ -21,7 +21,7 @@ type Client interface {
 //
 //	cfg, _ := config.LoadDefaultConfig(ctx, config.WithRegion("us-west-2"))
 //	client := gossm.NewClientFromConfig(cfg)
-//	val, err := gossm.Fetch(arn, "key", client)
+//	val, err := gossm.FetchSecret(ctx, arn, "key", client)
 func NewClientFromConfig(cfg aws.Config) Client {
 	return secretsmanager.NewFromConfig(cfg)
 }

@@ -17,7 +17,7 @@ gossm initialises its own AWS client from the environment automatically. No clie
 ```go
 arn := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/db"
 
-apiKey, err := gossm.Fetch(arn, "api_key")
+apiKey, err := gossm.FetchSecret(ctx, arn, "api_key")
 if err != nil {
     log.Fatal(err)
 }
@@ -28,19 +28,34 @@ fmt.Println(apiKey)
 
 ## Multiple keys into variables
 
-Call `Fetch` once per key. All keys come from the same JSON secret:
+Call `FetchSecret` once per key. All keys come from the same JSON secret:
 
 ```go
-dbUser, err     := gossm.Fetch(arn, "db_user")
-dbPassword, err := gossm.Fetch(arn, "db_password")
-apiKey, err     := gossm.Fetch(arn, "api_key")
+dbUser, err     := gossm.FetchSecret(ctx, arn, "db_user")
+dbPassword, err := gossm.FetchSecret(ctx, arn, "db_password")
+apiKey, err     := gossm.FetchSecret(ctx, arn, "api_key")
+```
+
+---
+
+## All keys at once
+
+`FetchSecretMap` retrieves the entire JSON secret as `map[string]string` in a single AWS call:
+
+```go
+secrets, err := gossm.FetchSecretMap(ctx, arn)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(secrets["db_user"])
+fmt.Println(secrets["api_key"])
 ```
 
 ---
 
 ## Multiple secrets into a typed struct
 
-Declare a `Config` struct and populate it once at startup. The rest of the program reads from the struct — no repeated AWS calls:
+Use `FetchSecretMap` to load multiple ARNs at startup and map the results into a typed struct:
 
 ```go
 type Config struct {
@@ -54,51 +69,81 @@ func loadConfig(ctx context.Context) (*Config, error) {
     dbARN  := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/db"
     apiARN := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/api"
 
-    var cfg Config
-
-    entries := []struct {
-        target *string
-        arn    string
-        key    string
-    }{
-        {&cfg.DBUser,     dbARN,  "db_user"},
-        {&cfg.DBPassword, dbARN,  "db_password"},
-        {&cfg.APIKey,     apiARN, "api_key"},
-        {&cfg.APISecret,  apiARN, "api_secret"},
+    db, err := gossm.FetchSecretMap(ctx, dbARN)
+    if err != nil {
+        return nil, fmt.Errorf("db secret: %w", err)
+    }
+    api, err := gossm.FetchSecretMap(ctx, apiARN)
+    if err != nil {
+        return nil, fmt.Errorf("api secret: %w", err)
     }
 
-    for _, e := range entries {
-        val, err := gossm.FetchWithContext(ctx, e.arn, e.key)
-        if err != nil {
-            return nil, fmt.Errorf("%s: %w", e.key, err)
-        }
-        *e.target = val
-    }
-
-    return &cfg, nil
+    return &Config{
+        DBUser:     db["db_user"],
+        DBPassword: db["db_password"],
+        APIKey:     api["api_key"],
+        APISecret:  api["api_secret"],
+    }, nil
 }
 ```
 
 ---
 
+## Using with Viper
+
+`FetchSecretMap` pairs naturally with [Viper](https://github.com/spf13/viper). Call it once at startup and register every secret key as a Viper default — the rest of the application reads config via `viper.GetString` as usual:
+
+```go
+func loadSecrets(ctx context.Context) error {
+    arn := "arn:aws:secretsmanager:eu-west-1:123456789012:secret:myapp/db"
+
+    secrets, err := gossm.FetchSecretMap(ctx, arn)
+    if err != nil {
+        return err
+    }
+    for k, v := range secrets {
+        viper.SetDefault(k, v)
+    }
+    return nil
+}
+
+func main() {
+    viper.SetConfigName("config")
+    viper.AddConfigPath(".")
+    viper.ReadInConfig() // file-based config (optional)
+    viper.AutomaticEnv() // env vars take precedence
+
+    if err := loadSecrets(context.Background()); err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println(viper.GetString("db_user"))
+    fmt.Println(viper.GetString("api_key"))
+}
+```
+
+Secrets are registered as Viper defaults — the lowest precedence level — so a local config file or environment variable will still override them during development.
+
+---
+
 ## Using with a web framework context
 
-`FetchWithContext` accepts any `context.Context` — stdlib, Gin, Echo, Chi, etc.:
+Both functions accept any `context.Context` — stdlib, Gin, Echo, Chi, etc.:
 
 ```go
 // Gin
 func handler(c *gin.Context) {
-    val, err := gossm.FetchWithContext(c.Request.Context(), arn, "key")
+    val, err := gossm.FetchSecret(c.Request.Context(), arn, "key")
 }
 
 // Echo
 func handler(c echo.Context) error {
-    val, err := gossm.FetchWithContext(c.Request().Context(), arn, "key")
+    val, err := gossm.FetchSecret(c.Request().Context(), arn, "key")
 }
 
 // Chi / stdlib
 func handler(w http.ResponseWriter, r *http.Request) {
-    val, err := gossm.FetchWithContext(r.Context(), arn, "key")
+    val, err := gossm.FetchSecret(r.Context(), arn, "key")
 }
 ```
 
@@ -112,9 +157,8 @@ Pass a `gossm.Client` as an optional last argument when you need a specific regi
 cfg, _ := config.LoadDefaultConfig(ctx, config.WithRegion("us-west-2"))
 client := gossm.NewClientFromConfig(cfg)
 
-val, err := gossm.Fetch(arn, "key", client)
-// or
-val, err := gossm.FetchWithContext(ctx, arn, "key", client)
+val, err     := gossm.FetchSecret(ctx, arn, "key", client)
+secrets, err := gossm.FetchSecretMap(ctx, arn, client)
 ```
 
 ---
@@ -189,8 +233,12 @@ func (m *mockClient) GetSecretValue(_ context.Context, input *secretsmanager.Get
     return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(val)}, nil
 }
 
-val, err := gossm.Fetch(arn, "api_key", &mockClient{
+val, err := gossm.FetchSecret(ctx, arn, "api_key", &mockClient{
     secrets: map[string]string{arn: `{"api_key":"test-key"}`},
+})
+
+secrets, err := gossm.FetchSecretMap(ctx, arn, &mockClient{
+    secrets: map[string]string{arn: `{"api_key":"test-key","db_user":"admin"}`},
 })
 ```
 

@@ -37,28 +37,21 @@ func loadConfig(ctx context.Context) (*Config, error) {
 	dbARN := os.Getenv("SECRET_ARN_DB")
 	apiARN := os.Getenv("SECRET_ARN_API")
 
-	var cfg Config
-
-	entries := []struct {
-		target *string
-		arn    string
-		key    string
-	}{
-		{&cfg.DBUser, dbARN, "db_user"},
-		{&cfg.DBPassword, dbARN, "db_password"},
-		{&cfg.APIKey, apiARN, "api_key"},
-		{&cfg.APISecret, apiARN, "api_secret"},
+	db, err := gossm.FetchSecretMap(ctx, dbARN)
+	if err != nil {
+		return nil, fmt.Errorf("db secret: %w", err)
+	}
+	api, err := gossm.FetchSecretMap(ctx, apiARN)
+	if err != nil {
+		return nil, fmt.Errorf("api secret: %w", err)
 	}
 
-	for _, e := range entries {
-		val, err := gossm.FetchWithContext(ctx, e.arn, e.key)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", e.key, err)
-		}
-		*e.target = val
-	}
-
-	return &cfg, nil
+	return &Config{
+		DBUser:     db["db_user"],
+		DBPassword: db["db_password"],
+		APIKey:     api["api_key"],
+		APISecret:  api["api_secret"],
+	}, nil
 }
 
 func main() {
