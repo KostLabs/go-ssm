@@ -39,3 +39,8 @@ jobs:
         uses: securego/gosec@master
         with:
           args: ./
+
+      - name: Run go-verifier
+        run: |
+          go install github.com/Kostlabs/goverifier/cmd/goverifier@latest
+          goverifier ./...
