@@ -9,38 +9,57 @@ on:
       - bugfix/**
 
 jobs:
-  verify:
-    name: Verify
+  fmt-vet:
+    name: Format & Vet
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-
-      - name: Validate Go format and vet
-        run: |
+      - run: |
           go fmt ./...
           go vet ./...
 
-      - name: Run tests
-        run: |
-          go test -v ./...
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go test -v ./...
 
-      - name: Run lint
-        uses: golangci/golangci-lint-action@v9
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: golangci/golangci-lint-action@v9
         with:
           args: ./
 
-      - name: Check for gosec
-        uses: securego/gosec@master
+  gosec:
+    name: Gosec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: securego/gosec@master
         with:
           args: ./
 
-      - name: Run go-verifier
-        run: |
+  go-verifier:
+    name: Go Verifier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: |
           go install github.com/Kostlabs/goverifier/cmd/goverifier@latest
           goverifier ./...
